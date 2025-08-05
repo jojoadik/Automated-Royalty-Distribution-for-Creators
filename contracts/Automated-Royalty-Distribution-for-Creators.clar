@@ -24,6 +24,23 @@
 )
 
 (define-data-var artwork-nonce uint u0)
+(define-data-var payment-nonce uint u0)
+
+(define-map royalty-payments
+  { payment-id: uint }
+  {
+    artwork-id: uint,
+    recipient: principal,
+    amount: uint,
+    block-height: uint,
+    transaction-sender: principal
+  }
+)
+
+(define-map recipient-payment-history
+  { recipient: principal, artwork-id: uint }
+  { payment-ids: (list 50 uint), total-earned: uint }
+)
 
 (define-read-only (get-artwork-details (artwork-id uint))
   (map-get? artwork-details { artwork-id: artwork-id })
@@ -31,6 +48,14 @@
 
 (define-read-only (get-collaborators (artwork-id uint))
   (map-get? creator-collaborators { artwork-id: artwork-id })
+)
+
+(define-read-only (get-royalty-payment (payment-id uint))
+  (map-get? royalty-payments { payment-id: payment-id })
+)
+
+(define-read-only (get-recipient-history (recipient principal) (artwork-id uint))
+  (map-get? recipient-payment-history { recipient: recipient, artwork-id: artwork-id })
 )
 
 (define-public (mint-artwork (royalty-percentage uint) (price uint) (collaborators (list 10 { address: principal, share: uint })))
@@ -121,8 +146,43 @@
   )
 )
 
+(define-data-var current-artwork-id uint u0)
+
 (define-private (distribute-royalties (artwork-id uint) (royalty-amount uint) (creator-info { collaborators: (list 10 { address: principal, share: uint }) }))
-  (fold distribute-share (get collaborators creator-info) (ok royalty-amount))
+  (begin
+    (var-set current-artwork-id artwork-id)
+    (fold distribute-share (get collaborators creator-info) (ok royalty-amount))
+  )
+)
+
+(define-private (record-royalty-payment (artwork-id uint) (recipient principal) (amount uint))
+  (let
+    (
+      (payment-id (+ (var-get payment-nonce) u1))
+      (current-history (default-to 
+        { payment-ids: (list), total-earned: u0 }
+        (get-recipient-history recipient artwork-id)
+      ))
+      (updated-payment-ids (unwrap! (as-max-len? (append (get payment-ids current-history) payment-id) u50) (err u1)))
+      (updated-total (+ (get total-earned current-history) amount))
+    )
+    (map-set royalty-payments
+      { payment-id: payment-id }
+      {
+        artwork-id: artwork-id,
+        recipient: recipient,
+        amount: amount,
+        block-height: burn-block-height,
+        transaction-sender: tx-sender
+      }
+    )
+    (map-set recipient-payment-history
+      { recipient: recipient, artwork-id: artwork-id }
+      { payment-ids: updated-payment-ids, total-earned: updated-total }
+    )
+    (var-set payment-nonce payment-id)
+    (ok payment-id)
+  )
 )
 
 (define-private (distribute-share (collaborator { address: principal, share: uint }) (previous-result (response uint uint)))
@@ -130,10 +190,15 @@
     result (let
       (
         (amount (/ (* result (get share collaborator)) u100))
+        (recipient-address (get address collaborator))
+        (artwork-id (var-get current-artwork-id))
       )
       (if (> amount u0)
-        (match (stx-transfer? amount tx-sender (get address collaborator))
-          success (ok (- result amount))
+        (match (stx-transfer? amount tx-sender recipient-address)
+          success (begin
+            (unwrap-panic (record-royalty-payment artwork-id recipient-address amount))
+            (ok (- result amount))
+          )
           error (err u1)
         )
         (ok result)
