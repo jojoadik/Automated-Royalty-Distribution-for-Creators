@@ -25,6 +25,7 @@
 
 (define-data-var artwork-nonce uint u0)
 (define-data-var payment-nonce uint u0)
+(define-data-var contract-paused bool false)
 
 (define-map royalty-payments
   { payment-id: uint }
@@ -66,7 +67,8 @@
     )
     (asserts! (<= royalty-percentage u100) ERR-INVALID-PERCENTAGE)
     (asserts! (is-eq total-shares u100) ERR-INVALID-PERCENTAGE)
-    
+    (asserts! (not (var-get contract-paused)) ERR-NOT-AUTHORIZED)
+
     (try! (nft-mint? artwork artwork-id tx-sender))
     (map-set artwork-details
       { artwork-id: artwork-id }
@@ -98,7 +100,8 @@
     )
     (asserts! (is-eq (get owner artwork-info) tx-sender) ERR-NOT-OWNER)
     (asserts! (not (get is-listed artwork-info)) ERR-ALREADY-LISTED)
-    
+    (asserts! (not (var-get contract-paused)) ERR-NOT-AUTHORIZED)
+
     (map-set artwork-details
       { artwork-id: artwork-id }
       (merge artwork-info { price: new-price, is-listed: true })
@@ -114,7 +117,8 @@
     )
     (asserts! (is-eq (get owner artwork-info) tx-sender) ERR-NOT-OWNER)
     (asserts! (get is-listed artwork-info) ERR-NOT-LISTED)
-    
+    (asserts! (not (var-get contract-paused)) ERR-NOT-AUTHORIZED)
+
     (map-set artwork-details
       { artwork-id: artwork-id }
       (merge artwork-info { is-listed: false })
@@ -133,7 +137,8 @@
       (seller-amount (- price royalty-amount))
     )
     (asserts! (get is-listed artwork-info) ERR-NOT-LISTED)
-    
+    (asserts! (not (var-get contract-paused)) ERR-NOT-AUTHORIZED)
+
     (try! (stx-transfer? price tx-sender (get owner artwork-info)))
     (try! (distribute-royalties artwork-id royalty-amount creator-info))
     
@@ -205,5 +210,18 @@
       )
     )
     error (err error)
+  )
+)
+(define-public (pause-contract)
+  (begin
+    (var-set contract-paused true)
+    (ok true)
+  )
+)
+
+(define-public (unpause-contract)
+  (begin
+    (var-set contract-paused false)
+    (ok true)
   )
 )
