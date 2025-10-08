@@ -225,3 +225,20 @@
     (ok true)
   )
 )
+
+(define-public (transfer-artwork (artwork-id uint) (new-owner principal))
+  (let
+    (
+      (artwork-info (unwrap! (get-artwork-details artwork-id) ERR-NOT-LISTED))
+    )
+    (asserts! (is-eq (get owner artwork-info) tx-sender) ERR-NOT-OWNER)
+    (asserts! (not (var-get contract-paused)) ERR-NOT-AUTHORIZED)
+
+    (try! (nft-transfer? artwork artwork-id tx-sender new-owner))
+    (map-set artwork-details
+      { artwork-id: artwork-id }
+      (merge artwork-info { owner: new-owner, is-listed: false })
+    )
+    (ok true)
+  )
+)
