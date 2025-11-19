@@ -127,6 +127,23 @@
   )
 )
 
+(define-public (update-artwork-price (artwork-id uint) (new-price uint))
+  (let
+    (
+      (artwork-info (unwrap! (get-artwork-details artwork-id) ERR-NOT-LISTED))
+    )
+    (asserts! (is-eq (get owner artwork-info) tx-sender) ERR-NOT-OWNER)
+    (asserts! (get is-listed artwork-info) ERR-NOT-LISTED)
+    (asserts! (not (var-get contract-paused)) ERR-NOT-AUTHORIZED)
+
+    (map-set artwork-details
+      { artwork-id: artwork-id }
+      (merge artwork-info { price: new-price })
+    )
+    (ok true)
+  )
+)
+
 (define-public (purchase-artwork (artwork-id uint))
   (let
     (
